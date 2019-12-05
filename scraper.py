@@ -3,13 +3,13 @@ import time
 import asyncio
 import schedule
 import requests
+import motor.motor_asyncio
 from bs4 import BeautifulSoup
 
+dbUrl = 'mongodb+srv://'
 
 class smykScraper(object):
     def __init__(self, url):
-        self.products = []
-
         self.__headers = {
             'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_14_5) AppleWebKit/605.1.15 (KHTML, like Gecko)',
         }
@@ -18,6 +18,7 @@ class smykScraper(object):
         self.__soup = BeautifulSoup(self.__get_request_content(), "html.parser")
 
         loop = asyncio.new_event_loop()
+        self.client = motor.motor_asyncio.AsyncIOMotorClient(dbUrl, io_loop=loop)
         loop.run_until_complete(self.__get_products())
         loop.close()
 
@@ -31,24 +32,25 @@ class smykScraper(object):
         return image_raw.split('"')[1] if image_raw else None
 
     async def __get_products(self):
-        for product in self.__soup.findAll('div', {'class': 'complex-product'}):
+        for product in self.__soup.findAll('div', {'class': 'complex-product'}, limit=5):
             product_url = 'https://www.smyk.com'+product.find('a')['href']
             if 'ubrania-i-buty' in self.__url:
-                self.products.append(dict({
-                    'product_image': await self.__get_product_image(product_url, self.__headers),
-                    'product_url': product_url,
-                    'product_description':  await self.__get_description(product),
-                    'product_price':  await self.__get_price(product),
-                    'product_sizes': await self.__get_clothes_details(product_url, self.__headers)[0],
-                    'product_color': await self.__get_clothes_details(product_url, self.__headers)[1],
-                }))
+                product = dict({
+                    'image': await self.__get_product_image(product_url, self.__headers),
+                    'url': product_url,
+                    'description':  await self.__get_description(product),
+                    'price':  await self.__get_price(product),
+                    'sizes': (await self.__get_clothes_details(product_url, self.__headers))[0],
+                    'color': (await self.__get_clothes_details(product_url, self.__headers))[1],
+                })
             else:
-                self.products.append(dict({
-                    'product_image': await self.__get_product_image(product_url, self.__headers),
-                    'product_url': product_url,
-                    'product_description':  await self.__get_description(product),
-                    'product_price':  await self.__get_price(product)
-                }))                
+                product = dict({
+                    'image': await self.__get_product_image(product_url, self.__headers),
+                    'url': product_url,
+                    'description':  await self.__get_description(product),
+                    'price':  await self.__get_price(product),
+                })
+            await self.__insert_to_database(product)
     
     @staticmethod
     async def __get_description(product):
@@ -67,9 +69,8 @@ class smykScraper(object):
         return ([size.text for size in page.find_all('div', {'class': 'size__item'})],
              page.find('span', {'class': 'black'}).text)
 
-    def json_result(self):
-        with open('products.json', 'a+') as file: json.dump(self.products, 
-            file, indent=4, sort_keys=True)
+    async def __insert_to_database(self, product):
+        result = await self.client.test.user.insert_one(product)
 
 
 urls = ['https://www.smyk.com/gry-planszowe/familijne.html', 
@@ -77,8 +78,9 @@ urls = ['https://www.smyk.com/gry-planszowe/familijne.html',
 
 
 for u in urls:
-    schedule.every().day.at('03:00').do(smykScraper(u).json_result)
+    smykScraper(u)
+    # schedule.every().day.at('03:00').do()
     
-while True:
-    schedule.run_pending()
-    time.sleep(1)
+# while True:
+#     schedule.run_pending()
+#     time.sleep(1)
