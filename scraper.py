@@ -6,7 +6,7 @@ import requests
 import motor.motor_asyncio
 from bs4 import BeautifulSoup
 
-dbUrl = 'mongodb+srv://'
+dbUrl = 'mongodb+srv://admin:chujkurwa@cluster0-0ehjt.mongodb.net/test?retryWrites=true&w=majority'
 
 class smykScraper(object):
     def __init__(self, url):
@@ -25,30 +25,32 @@ class smykScraper(object):
     def __get_request_content(self):
         return requests.get(self.__url, headers=self.__headers).content
 
-    @staticmethod
-    async def __get_product_image(product_url, headers):
-        image_raw = str(BeautifulSoup(requests.get(product_url, headers=headers).content, 
-            "html.parser").find_all('meta', itemprop='image'))
-        return image_raw.split('"')[1] if image_raw else None
+    async def __get_product_image_and_tags(self, product_url, headers):
+        soup = BeautifulSoup(requests.get(product_url, headers=headers).content, 
+            "html.parser")
+        image_raw = str(soup.find_all('meta', itemprop='image'))
+        return (image_raw.split('"')[1] if image_raw else None), await self.__get_tags(soup)
 
     async def __get_products(self):
         for product in self.__soup.findAll('div', {'class': 'complex-product'}, limit=5):
             product_url = 'https://www.smyk.com'+product.find('a')['href']
             if 'ubrania-i-buty' in self.__url:
                 product = dict({
-                    'image': await self.__get_product_image(product_url, self.__headers),
+                    'image': (await self.__get_product_image_and_tags(product_url, self.__headers))[0],
                     'url': product_url,
                     'description':  await self.__get_description(product),
                     'price':  await self.__get_price(product),
                     'sizes': (await self.__get_clothes_details(product_url, self.__headers))[0],
                     'color': (await self.__get_clothes_details(product_url, self.__headers))[1],
+                    'tags': (await self.__get_product_image_and_tags(product_url, self.__headers))[1]
                 })
             else:
                 product = dict({
-                    'image': await self.__get_product_image(product_url, self.__headers),
+                    'image': (await self.__get_product_image_and_tags(product_url, self.__headers))[0],
                     'url': product_url,
                     'description':  await self.__get_description(product),
                     'price':  await self.__get_price(product),
+                    'tags': (await self.__get_product_image_and_tags(product_url, self.__headers))[1]
                 })
             await self.__insert_to_database(product)
     
@@ -56,6 +58,13 @@ class smykScraper(object):
     async def __get_description(product):
         return product.find('div', {'class': 'complex-product__info'}
             ).find("div", {'class': "complex-product__name"}).text
+
+    @staticmethod
+    async def __get_tags(soup):
+        path_tags = [tag.find('span').text for tag in soup.find('section',{'class':'section section--0 section--2slots'}).find_all('a', {'class':'text-with-arrow text-with-arrow--append-arrow element__content'})[:2:]]
+        for description_tag in soup.find('span', {'class':'box-attributes-list__atribute--header'}).text.split(','):
+            path_tags.append(description_tag)
+        return path_tags
 
     @staticmethod
     async def __get_price(product):
