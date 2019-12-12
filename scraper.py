@@ -6,7 +6,7 @@ import requests
 import motor.motor_asyncio
 from bs4 import BeautifulSoup
 
-dbUrl = 'mongodb+srv://admin:chujkurwa@cluster0-0ehjt.mongodb.net/test?retryWrites=true&w=majority'
+dbUrl = ''
 
 class smykScraper(object):
     def __init__(self, url):
